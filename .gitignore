@@ -1,0 +1,14 @@
+# 忽略大文件附件
+raw/assets/*
+
+# 忽略临时文件
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 忽略Obsidian配置目录（可选）
+# .obsidian/
