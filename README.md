@@ -1,0 +1,122 @@
+# LLM Wiki
+
+A lightweight CLI tool for building and maintaining LLM-powered knowledge bases, based on Andrej Karpathy's LLM Wiki idea.
+
+## Features
+
+- 📥 **Multi-format Ingest**: Support markdown, txt, PDF, Word documents, web pages, and audio files
+- 🔍 **Smart Query**: Search your knowledge base and get cited answers
+- 🧹 **Auto Lint**: Check for broken links, content contradictions, orphan pages, and more
+- 🔄 **Git Versioning**: Automatic commit of all changes, full history tracking
+- 🤖 **Independent**: Built-in LLM API support, no dependency on Claude Code or other agent platforms
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+## Configuration
+
+1. Copy the example environment file:
+```bash
+cp .env.example .env
+```
+
+2. Edit `.env` with your API keys and preferences:
+```env
+LLM_PROVIDER=openai
+API_KEY=your-openai-api-key
+MODEL_NAME=gpt-4o
+```
+
+## Quick Start
+
+### 1. Initialize a new Wiki
+```bash
+llmwiki init
+```
+
+This creates the standard directory structure:
+```
+your-wiki/
+├── raw/            # Immutable source material
+│   ├── assets/
+│   ├── articles/
+│   ├── papers/
+│   ├── notes/
+│   └── books/
+└── wiki/           # Compiled knowledge pages
+    ├── concepts/
+    ├── entities/
+    ├── sources/
+    ├── synthesis/
+    ├── index.md
+    └── log.md
+```
+
+### 2. Ingest a source
+```bash
+# Ingest a local file
+llmwiki ingest path/to/your/file.pdf
+
+# Ingest a web page
+llmwiki ingest https://example.com/article.html
+
+# Specify topic and auto-approve changes
+llmwiki ingest path/to/paper.pdf --topic machine-learning --auto-approve
+```
+
+### 3. Query your knowledge base
+```bash
+llmwiki query "What do I know about attention mechanisms?"
+
+# Save the answer as a new synthesis page
+llmwiki query "Compare RAG and LLM Wiki" --save --topic knowledge-management
+```
+
+### 4. Check wiki health
+```bash
+# Run health check and generate report
+llmwiki lint
+
+# Auto-fix repairable issues
+llmwiki lint --auto-fix
+```
+
+### Other commands
+```bash
+# Check wiki status
+llmwiki status
+
+# View operation log
+llmwiki log
+
+# Search wiki content
+llmwiki search "transformer"
+```
+
+## Architecture
+
+```
+raw/                # Immutable source material (files, web pages, audio transcripts)
+  └── <topic>/
+      └── YYYY-MM-DD-source-name.md
+wiki/               # LLM-maintained knowledge pages
+  ├── concepts/     # Concepts, terms, technologies
+  ├── entities/     # People, organizations, products, projects
+  ├── sources/      # Source material summaries
+  ├── synthesis/    # Analyses, comparisons, answers to queries
+  ├── index.md      # Global table of contents
+  └── log.md        # Append-only operation log
+```
+
+## Workflow
+
+1. **Ingest**: When you add a new source, LLM Wiki extracts text, analyzes content, updates relevant wiki pages, adds cross-references, and records the operation.
+2. **Query**: When you ask a question, LLM Wiki searches relevant pages, synthesizes an answer with citations, and optionally saves the answer as a new synthesis page.
+3. **Lint**: Periodically check for issues like broken links, content contradictions, orphan pages, and missing references to keep your wiki healthy.
+
+## License
+
+MIT
