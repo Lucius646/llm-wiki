@@ -2,6 +2,7 @@ from typing import List, Dict, Any
 from openai import OpenAI
 from anthropic import Anthropic
 from llmwiki.config import settings
+from llmwiki.utils import extract_frontmatter
 
 class LLMClient:
     def __init__(self):
@@ -104,43 +105,48 @@ def analyze_content(content: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
 def synthesize_answer(question: str, relevant_pages: List[Dict[str, Any]]) -> str:
     """
     Synthesize an answer to a question based on relevant wiki pages
-
     Args:
         question: User's question
         relevant_pages: List of relevant pages with content
-
     Returns:
         Synthesized answer with citations
     """
-    # TODO: Implement answer synthesis logic
-    print(f"DEBUG: Synthesizing answer for: {question}")
+    if not relevant_pages:
+        return "我没有找到相关的信息来回答这个问题，请先导入相关资料后再尝试。"
 
     client = get_llm_client()
 
-    # Build context from relevant pages
+    # 构建上下文，限制每个页面的内容长度避免超过token限制
     context = ""
     for i, page in enumerate(relevant_pages):
-        context += f"\n=== Page {i+1}: {page['title']} ({page['path']}) ===\n"
-        context += page['content'][:3000]  # Limit each page content
+        frontmatter, body = extract_frontmatter(page["content"])
+        # 只保留正文部分，去掉元数据
+        context += f"\n=== [{i+1}] {page['title']} (路径: {page['path']}) ===\n"
+        context += body[:3000] + "\n"  # 每个页面最多取3000字符
 
     prompt = f"""
-    Answer the following question based only on the provided context:
+    请根据以下提供的知识库内容，准确回答用户的问题，严格遵守以下规则：
 
-    Question: {question}
+    1. 只能使用提供的上下文内容回答问题，不能编造任何不在上下文里的信息
+    2. 所有事实性陈述都必须标注来源，引用格式为：[页面标题](相对路径)
+    3. 如果多个来源提到相同内容，可以标注多个来源
+    4. 如果上下文里没有足够信息回答问题，直接说："我没有找到相关的信息来回答这个问题。"
+    5. 回答结构清晰，逻辑分明，语言简洁明了
+    6. 最后可以补充一个"参考资料"部分，列出所有引用的页面
 
-    Context:
+    用户问题：{question}
+
+    知识库内容：
     {context}
-
-    Instructions:
-    1. Answer accurately based only on the information in the context
-    2. Cite your sources using markdown links to the page paths, e.g. [Page Title](path/to/page.md)
-    3. If the answer is not in the context, say "I don't have enough information to answer this question."
-    4. Keep the answer clear and well-structured
     """
 
     messages = [
-        {"role": "system", "content": "You are a helpful assistant that answers questions based only on the provided context, citing sources appropriately."},
+        {"role": "system", "content": "你是一个专业的知识库助理，能够准确根据提供的内容回答问题，并且严格标注来源，从不编造信息。"},
         {"role": "user", "content": prompt}
     ]
 
-    return client.chat_completion(messages, temperature=0.5)
+    try:
+        answer = client.chat_completion(messages, temperature=0.3)
+        return answer
+    except Exception as e:
+        return f"生成回答时发生错误：{str(e)}"

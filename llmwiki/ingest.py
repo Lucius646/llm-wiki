@@ -3,10 +3,9 @@ from typing import Dict, Any, Optional, List
 from llmwiki.parsers import parse_markdown, parse_pdf, parse_docx, parse_web, parse_audio
 from llmwiki.llm_client import get_llm_client
 from llmwiki.git_utils import commit_changes
-from llmwiki.utils import generate_slug, get_date_prefix, build_frontmatter, extract_frontmatter
+from llmwiki.utils import generate_slug, get_date_prefix, build_frontmatter, extract_frontmatter, update_index, add_log_entry
 from llmwiki.config import settings
 import json
-from datetime import datetime
 
 def _analyze_content_with_llm(content: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     """调用LLM分析内容，提取元数据、分类、标签、相关知识点"""

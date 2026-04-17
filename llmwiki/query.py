@@ -1,30 +1,28 @@
 from typing import Optional
+from pathlib import Path
 from llmwiki.search import search_relevant_pages
 from llmwiki.llm_client import synthesize_answer
-from llmwiki.utils import build_frontmatter, generate_slug, get_date_prefix
+from llmwiki.utils import build_frontmatter, generate_slug, get_date_prefix, update_index, add_log_entry
 from llmwiki.git_utils import commit_changes
 from llmwiki.config import settings
 
 def query_wiki(question: str, save: bool = False, topic: Optional[str] = None) -> str:
     """
     Query the wiki and generate an answer with citations
-
     Args:
         question: User's question
         save: Whether to save the answer as a synthesis page
         topic: Topic category for the saved page
-
     Returns:
         Synthesized answer with citations
     """
-    # TODO: Implement full query logic
-    print(f"DEBUG: Querying: {question}, save: {save}, topic: {topic}")
-
-    # Search relevant pages
+    # 搜索相关页面
     relevant_pages = search_relevant_pages(question)
 
-    # Synthesize answer
+    # 合成回答
     answer = synthesize_answer(question, relevant_pages)
+
+    changed_files = []
 
     if save:
         # Save as synthesis page
@@ -33,7 +31,7 @@ def query_wiki(question: str, save: bool = False, topic: Optional[str] = None) -
         if not topic:
             topic = "uncategorized"
 
-        synthesis_dir = settings.wiki_dir / "synthesis" / topic
+        synthesis_dir = settings.wiki_dir / "synthesis" / topic.lower().replace(" ", "-")
         synthesis_dir.mkdir(exist_ok=True, parents=True)
         synthesis_file_path = synthesis_dir / f"{date_prefix}-{slug}.md"
 
@@ -48,9 +46,24 @@ def query_wiki(question: str, save: bool = False, topic: Optional[str] = None) -
 
         content = build_frontmatter(frontmatter) + "\n" + answer
         synthesis_file_path.write_text(content, encoding="utf-8")
+        changed_files.append(str(synthesis_file_path.relative_to(settings.wiki_root)))
 
-        # TODO: Update index.md
-        # TODO: Update log.md
-        # TODO: Commit changes if enabled
+        # 更新index.md
+        update_index(synthesis_file_path, question, "synthesis")
+        changed_files.append("wiki/index.md")
+
+        # 更新log.md
+        log_details = [
+            f"问题：{question}",
+            f"生成页面：{synthesis_file_path.relative_to(settings.wiki_root)}",
+            f"引用来源：{len(relevant_pages)}个页面"
+        ]
+        add_log_entry("query", f"回答问题：{question[:30]}{'...' if len(question) > 30 else ''}", log_details)
+        changed_files.append("wiki/log.md")
+
+        # 自动提交Git变更
+        if settings.git_auto_commit:
+            commit_msg = f"[query] 回答问题：{question[:50]}{'...' if len(question) > 50 else ''} | 变更{len(changed_files)}个页面"
+            commit_changes(commit_msg, changed_files)
 
     return answer

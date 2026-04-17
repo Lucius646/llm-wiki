@@ -205,3 +205,64 @@ def build_frontmatter(frontmatter: Dict[str, Any]) -> str:
         lines.append(f"{key}: {value_str}")
     lines.append("---\n")
     return "\n".join(lines)
+
+def update_index(page_path: Path, title: str, page_type: str) -> None:
+    """Update index.md directory with new/updated page"""
+    index_path = settings.index_path
+    content = index_path.read_text(encoding="utf-8")
+
+    # 确定分类标题
+    type_mapping = {
+        "concept": "## Concepts",
+        "entity": "## Entities",
+        "source": "## Sources",
+        "synthesis": "## Synthesis"
+    }
+    section_title = type_mapping.get(page_type, "## Concepts")
+
+    # 相对路径
+    relative_path = page_path.relative_to(settings.wiki_dir)
+    new_entry = f"- [{title}]({relative_path})"
+
+    # 找到对应分类，插入新条目
+    if section_title in content:
+        parts = content.split(section_title, 1)
+        before = parts[0]
+        rest = parts[1]
+
+        # 找下一个二级标题的位置
+        next_section_pos = rest.find("\n## ")
+        if next_section_pos == -1:
+            # 分类在最后，直接追加
+            if new_entry not in rest:
+                new_content = before + section_title + "\n" + new_entry + rest
+            else:
+                new_content = content
+        else:
+            section_content = rest[:next_section_pos]
+            after = rest[next_section_pos:]
+            # 去重，如果条目已经存在就不重复加
+            if new_entry.strip() not in section_content:
+                section_content = section_content.rstrip() + "\n" + new_entry
+            new_content = before + section_title + section_content + after
+
+        index_path.write_text(new_content, encoding="utf-8")
+    else:
+        # 如果分类不存在，添加到末尾
+        content += f"\n{section_title}\n{new_entry}"
+        index_path.write_text(content, encoding="utf-8")
+
+def add_log_entry(op_type: str, description: str, details: List[str] = None) -> None:
+    """Add operation record to log.md"""
+    log_path = settings.log_path
+    content = log_path.read_text(encoding="utf-8")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"\n## [{timestamp}] {op_type} | {description}\n"
+    if details:
+        for detail in details:
+            log_entry += f"- {detail}\n"
+
+    # 插入到开头，在log.md的标题之后
+    content = content.replace("# Operation Log\n", "# Operation Log\n" + log_entry)
+    log_path.write_text(content, encoding="utf-8")

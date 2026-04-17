@@ -5,7 +5,8 @@
       "Bash(llmwiki:*)",
       "Bash(llm chat:*)",
       "Bash(python:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(llm --version)"
     ]
   }
 }
