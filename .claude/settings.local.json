@@ -4,7 +4,8 @@
       "Bash(pip install:*)",
       "Bash(llmwiki:*)",
       "Bash(llm chat:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "WebSearch"
     ]
   }
 }
