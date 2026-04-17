@@ -12,3 +12,18 @@ Thumbs.db
 
 # 忽略Obsidian配置目录（可选）
 # .obsidian/
+
+# Python忽略规则
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.env
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
