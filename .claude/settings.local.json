@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(pip install:*)",
-      "Bash(llmwiki:*)"
+      "Bash(llmwiki:*)",
+      "Bash(llm chat:*)",
+      "Bash(python:*)"
     ]
   }
 }
