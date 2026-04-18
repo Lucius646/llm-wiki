@@ -12,12 +12,16 @@ def query_wiki(question: str, save: bool = False, topic: Optional[str] = None) -
     Args:
         question: User's question
         save: Whether to save the answer as a synthesis page
-        topic: Topic category for the saved page
+        topic: Topic category for the saved page，也会作为搜索关键词的补充
     Returns:
         Synthesized answer with citations
     """
     # 搜索相关页面
-    relevant_pages = search_relevant_pages(question)
+    search_query = question
+    if topic:
+        # 如果指定了topic，加入到搜索关键词里，提高相关性
+        search_query = f"{topic} {question}"
+    relevant_pages = search_relevant_pages(search_query)
 
     # 合成回答
     answer = synthesize_answer(question, relevant_pages)

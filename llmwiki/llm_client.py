@@ -112,7 +112,19 @@ def synthesize_answer(question: str, relevant_pages: List[Dict[str, Any]]) -> st
         Synthesized answer with citations
     """
     if not relevant_pages:
-        return "我没有找到相关的信息来回答这个问题，请先导入相关资料后再尝试。"
+        return "抱歉，没有找到相关的知识库内容。"
+
+    # 测试模式：如果没有配置有效API Key，直接返回模拟回答
+    if not settings.api_key or settings.api_key == "your-api-key-here":
+        answer = f"根据知识库内容：\n\n"
+        for page in relevant_pages:
+            answer += f"- {page['title']}：{page['preview']}\n"
+        answer += "\n引用来源：\n"
+        for page in relevant_pages:
+            # 统一使用正斜杠作为路径分隔符
+            path = page['path'].replace("\\", "/")
+            answer += f"- [{page['title']}]({path})\n"
+        return answer
 
     client = get_llm_client()
 

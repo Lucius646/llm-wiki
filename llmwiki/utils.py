@@ -147,7 +147,15 @@ def get_operation_log(limit: int = 10) -> List[Dict[str, Any]]:
 
 def generate_slug(title: str, max_length: int = 60) -> str:
     """Generate a URL-friendly slug from a title"""
-    return slugify(title, lowercase=True, max_length=max_length)
+    import re
+    # 保留中文、英文、数字、空格，其他特殊字符删除
+    slug = re.sub(r'[^\w\u4e00-\u9fff\s]', '', title.lower())
+    # 空格替换为-
+    slug = re.sub(r'\s+', '-', slug)
+    # 合并多个连续的-
+    slug = re.sub(r'-+', '-', slug).strip('-')
+    # 截断到最大长度
+    return slug[:max_length]
 
 def get_date_prefix() -> str:
     """Get current date as prefix for filenames"""

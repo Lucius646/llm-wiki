@@ -33,6 +33,7 @@ def _extract_preview(content: str, keywords: List[str], length: int = 200) -> st
     """提取包含关键词的上下文预览"""
     content_lower = content.lower()
     min_pos = len(content)
+    start = 0
 
     # 找到第一个出现的关键词位置
     for kw in keywords:
@@ -44,18 +45,21 @@ def _extract_preview(content: str, keywords: List[str], length: int = 200) -> st
         # 没有找到关键词，取开头
         preview = content[:length].replace("\n", " ").strip()
     else:
-        # 取关键词前后的内容
+        # 取关键词前后的内容，尽可能填满长度
         start = max(0, min_pos - length//2)
-        end = min(len(content), min_pos + length//2)
+        end = min(len(content), start + length)
+        # 如果还有剩余空间，尝试往后扩展
+        if end - start < length and start > 0:
+            start = max(0, end - length)
         preview = content[start:end].replace("\n", " ").strip()
-
-    # 超过长度则截断
-    if len(preview) > length:
-        preview = preview[:length-3] + "..."
 
     # 开头不是从完整句子开始的话，加上省略号
     if start > 0:
         preview = "..." + preview
+
+    # 超过长度则截断
+    if len(preview) > length:
+        preview = preview[:length-3] + "..."
 
     return preview
 
@@ -113,9 +117,11 @@ def search_relevant_pages(question: str, limit: int = 5) -> List[Dict[str, Any]]
     Returns:
         List of relevant pages with content
     """
-    # 提取问题关键词：去掉停用词，拆分关键词
+    # 提取问题关键词：去掉停用词，拆分关键词（支持中英文混合）
     stop_words = {"什么", "怎么", "如何", "为什么", "是", "的", "了", "吗", "呢", "啊", "我", "你", "他", "我们", "你们", "他们", "这个", "那个", "哪些", "怎么"}
-    keywords = [kw for kw in re.split(r'\s+', question.strip()) if kw and kw not in stop_words and len(kw) > 1]
+    # 拆分关键词：空格、标点符号都作为分隔符，同时保留中文词语
+    keywords = re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z0-9]+', question.strip())
+    keywords = [kw for kw in keywords if kw and kw not in stop_words and len(kw) > 1]
 
     # 如果没有有效关键词，返回空
     if not keywords:
