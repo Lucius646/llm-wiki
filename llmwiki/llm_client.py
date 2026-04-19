@@ -1,61 +1,127 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Type
+from abc import ABC, abstractmethod
 from openai import OpenAI
 from anthropic import Anthropic
 from llmwiki.config import settings, UserConfig
 from llmwiki.auth import get_valid_openai_token
 from llmwiki.utils import extract_frontmatter
 
-class LLMClient:
-    def __init__(self):
-        self.provider = settings.llm_provider
-        self.model = settings.model_name
+# Provider registry for custom providers
+_provider_registry: Dict[str, Type['BaseLLMProvider']] = {}
 
-        if self.provider == "openai":
-            # Try OAuth token first, then API key
-            token = get_valid_openai_token()
-            if token:
-                self.client = OpenAI(api_key=token)
-            else:
-                # Fall back to API key from settings
-                self.api_key = settings.api_key
-                if not self.api_key:
-                    raise ValueError("No OpenAI credentials found. Please run `llmwiki login` or set API_KEY in .env")
-                self.client = OpenAI(api_key=self.api_key)
-        elif self.provider == "anthropic":
-            # Try saved key first, then settings
-            self.api_key = UserConfig.get_anthropic_key() or settings.api_key
-            if not self.api_key:
-                raise ValueError("No Anthropic API key found. Please run `llmwiki login --provider anthropic` or set API_KEY in .env")
-            self.client = Anthropic(api_key=self.api_key)
+def register_provider(name: str, provider_class: Type['BaseLLMProvider']):
+    """
+    Register a custom LLM provider.
+    Args:
+        name: Provider name (lowercase, unique)
+        provider_class: Provider class that inherits from BaseLLMProvider
+    """
+    if name in _provider_registry:
+        raise ValueError(f"Provider '{name}' is already registered")
+    _provider_registry[name] = provider_class
+
+class BaseLLMProvider(ABC):
+    """Abstract base class for all LLM providers"""
+
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize provider with configuration.
+        Args:
+            config: Provider-specific configuration from settings
+        """
+        self.config = config
+        self.model = config.get('model', settings.model_name)
+
+    @abstractmethod
+    def chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
+        """
+        Generate chat completion response.
+        Args:
+            messages: List of message dictionaries with "role" and "content"
+            temperature: Sampling temperature
+        Returns:
+            Generated response text
+        """
+        pass
+
+class OpenAIProvider(BaseLLMProvider):
+    """OpenAI LLM provider implementation"""
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        # Try OAuth token first, then API key
+        token = get_valid_openai_token()
+        if token:
+            self.client = OpenAI(api_key=token)
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider}")
+            # Fall back to API key from config/settings
+            self.api_key = config.get('api_key') or settings.api_key
+            if not self.api_key:
+                raise ValueError("No OpenAI credentials found. Please run `llmwiki login` or set API_KEY in .env")
+            self.client = OpenAI(api_key=self.api_key)
+
+    def chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature
+        )
+        return response.choices[0].message.content
+
+class AnthropicProvider(BaseLLMProvider):
+    """Anthropic LLM provider implementation"""
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        # Try saved key first, then config/settings
+        self.api_key = config.get('api_key') or UserConfig.get_anthropic_key() or settings.api_key
+        if not self.api_key:
+            raise ValueError("No Anthropic API key found. Please run `llmwiki login --provider anthropic` or set API_KEY in .env")
+        self.client = Anthropic(api_key=self.api_key)
+
+    def chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
+        response = self.client.messages.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=4096
+        )
+        return response.content[0].text
+
+# Register built-in providers
+register_provider('openai', OpenAIProvider)
+register_provider('anthropic', AnthropicProvider)
+
+class LLMClient:
+    def __init__(self, provider_name: Optional[str] = None, provider_config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize LLM client.
+        Args:
+            provider_name: Optional provider name override (defaults to settings.llm_provider)
+            provider_config: Optional provider-specific configuration override
+        """
+        self.provider_name = provider_name or settings.llm_provider
+        self.provider_config = provider_config or settings.custom_provider_configs.get(self.provider_name, {})
+
+        # Get provider class from registry
+        if self.provider_name not in _provider_registry:
+            raise ValueError(
+                f"Unknown LLM provider: '{self.provider_name}'. "
+                f"Available providers: {list(_provider_registry.keys())}. "
+                f"Use `register_provider()` to add custom providers."
+            )
+
+        provider_class = _provider_registry[self.provider_name]
+        self.provider = provider_class(self.provider_config)
 
     def chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
         """
         Generate a chat completion response
-
         Args:
             messages: List of message dictionaries with "role" and "content"
             temperature: Sampling temperature
-
         Returns:
             Generated response text
         """
-        if self.provider == "openai":
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature
-            )
-            return response.choices[0].message.content
-        elif self.provider == "anthropic":
-            response = self.client.messages.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=4096
-            )
-            return response.content[0].text
+        return self.provider.chat_completion(messages, temperature)
 
 # Global client instance
 _client = None

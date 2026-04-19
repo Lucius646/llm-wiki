@@ -17,9 +17,10 @@ class Settings(BaseSettings):
     )
 
     # LLM Configuration
-    llm_provider: str = Field(default="openai", description="LLM provider: openai or anthropic")
-    api_key: Optional[str] = Field(default=None, description="API key for the chosen LLM provider")
+    llm_provider: str = Field(default="openai", description="LLM provider: openai, anthropic, or custom registered provider")
+    api_key: Optional[str] = Field(default=None, description="API key for the chosen LLM provider (for built-in providers)")
     model_name: str = Field(default="gpt-4o", description="Model name to use")
+    custom_provider_configs: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Configuration for custom LLM providers")
 
     # Wiki Configuration
     wiki_root: Path = Field(default_factory=Path.cwd, description="Root directory of the wiki")
