@@ -62,6 +62,28 @@ def cli(ctx: click.Context, wiki_root: Path | None):
         settings = config.settings
     ctx.ensure_object(dict)
 
+@cli.command(name="login")
+@click.option("--provider", type=click.Choice(["openai", "anthropic"]), default="openai",
+              help="LLM provider to login to (default: openai)")
+def login(provider: str):
+    """Login to LLM provider using official OAuth flow (no manual API key required)."""
+    if provider == "openai":
+        from llmwiki.auth import start_openai_device_flow
+        success = start_openai_device_flow()
+        sys.exit(0 if success else 1)
+    elif provider == "anthropic":
+        # Anthropic doesn't support OAuth yet, prompt for API key
+        click.echo("🔐 Anthropic 授权登录")
+        api_key = click.prompt("请输入你的Anthropic API Key", hide_input=True)
+        if api_key.strip():
+            from llmwiki.config import UserConfig
+            UserConfig.save_anthropic_key(api_key.strip())
+            click.echo("✅ Anthropic API Key 已保存！")
+            sys.exit(0)
+        else:
+            click.echo("❌ API Key 不能为空", err=True)
+            sys.exit(1)
+
 @cli.command()
 @click.option("--force", is_flag=True, help="Force initialization even if directories already exist")
 def init(force: bool):
@@ -104,11 +126,12 @@ def ingest(path: str, topic: str | None, auto_approve: bool):
 @click.argument("question")
 @click.option("--save", is_flag=True, help="Save the answer as a new synthesis page")
 @click.option("--topic", help="Topic category for the saved page")
-def query(question: str, save: bool, topic: str | None):
+@click.option("--no-semantic", is_flag=True, help="Disable semantic search, use keyword search only")
+def query(question: str, save: bool, topic: str | None, no_semantic: bool):
     """Query the wiki and get cited answers."""
     click.echo(f"🔍 Querying: {question}")
     try:
-        answer = query_wiki(question, save=save, topic=topic)
+        answer = query_wiki(question, save=save, topic=topic, use_semantic=not no_semantic)
         click.echo("\n📝 Answer:")
         click.echo(answer)
         if save:
@@ -295,7 +318,7 @@ def chat(persist, no_history):
         # 处理普通提问，调用query_wiki
         with Status("正在查询知识库...", spinner="dots"):
             try:
-                answer = query_wiki(user_input, save=False)
+                answer = query_wiki(user_input, save=False, context=context)
                 # 渲染Markdown回答
                 console.print()
                 console.print(Panel(
@@ -308,9 +331,107 @@ def chat(persist, no_history):
                 # 加入上下文
                 context.append({"role": "user", "content": user_input})
                 context.append({"role": "assistant", "content": answer})
+                # 上下文长度管理：最多保留最近10轮对话（20条消息）
+                if len(context) > 20:
+                    # 删除最早的2条（一轮对话）
+                    context = context[2:]
             except Exception as e:
                 console.print(f"❌ 查询失败：{str(e)}", style="red")
                 continue
+
+# 向量检索相关命令
+@cli.group(name="vector")
+def vector():
+    """离线向量检索相关操作."""
+    pass
+
+@vector.command(name="build")
+@click.option("--force", is_flag=True, help="Force rebuild the entire index, not just incremental update")
+def vector_build(force: bool):
+    """Build or update the vector index for semantic search."""
+    try:
+        from llmwiki.vector_search import VectorIndex, VECTOR_SUPPORT
+        if not VECTOR_SUPPORT:
+            click.echo("❌ 向量检索功能需要安装依赖：pip install sentence-transformers numpy scikit-learn", err=True)
+            sys.exit(1)
+
+        click.echo("🔄 正在构建向量索引（首次运行会自动下载模型，大约需要几分钟）...")
+        index = VectorIndex()
+        index.build_index(force_rebuild=force)
+        click.echo(f"✅ 向量索引构建完成！共索引 {len(index.vectors)} 个页面")
+    except Exception as e:
+        click.echo(f"❌ 构建向量索引失败：{e}", err=True)
+        sys.exit(1)
+
+@vector.command(name="search")
+@click.argument("query")
+@click.option("--limit", type=int, default=5, help="Maximum number of results (default: 5)")
+@click.option("--min-score", type=float, default=0.3, help="Minimum similarity score (0-1, default: 0.3)")
+def vector_search(query: str, limit: int, min_score: float):
+    """Semantic search wiki content by meaning, not just keywords."""
+    try:
+        from llmwiki.vector_search import VectorIndex, VECTOR_SUPPORT
+        if not VECTOR_SUPPORT:
+            click.echo("❌ 向量检索功能需要安装依赖：pip install sentence-transformers numpy scikit-learn", err=True)
+            sys.exit(1)
+
+        click.echo(f"🔍 语义搜索: {query}")
+        index = VectorIndex()
+        index.load_index()
+        # 如果索引不存在，自动构建
+        if not index.vectors:
+            click.echo("⚠️ 未找到向量索引，正在自动构建...")
+            index.build_index()
+
+        results = index.search(query, top_k=limit, min_score=min_score)
+        if not results:
+            click.echo("  没有找到相关结果")
+            return
+
+        for i, result in enumerate(results, 1):
+            click.echo(f"\n{i}. {result['title']} ({result['path']})")
+            click.echo(f"   相似度: {result['score']:.2f}")
+            # 显示预览
+            file_path = settings.wiki_dir / result["path"]
+            content = file_path.read_text(encoding="utf-8")
+            from llmwiki.utils import extract_frontmatter
+            _, body = extract_frontmatter(content)
+            preview = body[:150].replace("\n", " ").strip()
+            if len(preview) > 150:
+                preview = preview[:147] + "..."
+            click.echo(f"   预览: {preview}")
+    except Exception as e:
+        click.echo(f"❌ 语义搜索失败：{e}", err=True)
+        sys.exit(1)
+
+@vector.command(name="status")
+def vector_status():
+    """Show vector index status."""
+    try:
+        from llmwiki.vector_search import VectorIndex, VECTOR_SUPPORT
+        if not VECTOR_SUPPORT:
+            click.echo("❌ 向量检索功能需要安装依赖：pip install sentence-transformers numpy scikit-learn", err=True)
+            sys.exit(1)
+
+        index = VectorIndex()
+        if not index.index_path.exists():
+            click.echo("⚠️ 向量索引尚未构建，请先运行 `llmwiki vector build`")
+            return
+
+        index.load_index()
+        # 统计信息
+        total_pages = len(index.vectors)
+        last_modified = datetime.fromtimestamp(index.index_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        index_size = f"{index.index_path.stat().st_size / 1024 / 1024:.2f} MB" if index.index_path.stat().st_size > 1024 * 1024 else f"{index.index_path.stat().st_size / 1024:.2f} KB"
+
+        click.echo("📊 向量索引状态:")
+        click.echo(f"  已索引页面数: {total_pages}")
+        click.echo(f"  最后更新时间: {last_modified}")
+        click.echo(f"  索引文件大小: {index_size}")
+        click.echo(f"  索引文件路径: {index.index_path}")
+    except Exception as e:
+        click.echo(f"❌ 获取索引状态失败：{e}", err=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     cli()

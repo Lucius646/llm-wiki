@@ -1,18 +1,31 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from anthropic import Anthropic
-from llmwiki.config import settings
+from llmwiki.config import settings, UserConfig
+from llmwiki.auth import get_valid_openai_token
 from llmwiki.utils import extract_frontmatter
 
 class LLMClient:
     def __init__(self):
         self.provider = settings.llm_provider
-        self.api_key = settings.api_key
         self.model = settings.model_name
 
         if self.provider == "openai":
-            self.client = OpenAI(api_key=self.api_key)
+            # Try OAuth token first, then API key
+            token = get_valid_openai_token()
+            if token:
+                self.client = OpenAI(api_key=token)
+            else:
+                # Fall back to API key from settings
+                self.api_key = settings.api_key
+                if not self.api_key:
+                    raise ValueError("No OpenAI credentials found. Please run `llmwiki login` or set API_KEY in .env")
+                self.client = OpenAI(api_key=self.api_key)
         elif self.provider == "anthropic":
+            # Try saved key first, then settings
+            self.api_key = UserConfig.get_anthropic_key() or settings.api_key
+            if not self.api_key:
+                raise ValueError("No Anthropic API key found. Please run `llmwiki login --provider anthropic` or set API_KEY in .env")
             self.client = Anthropic(api_key=self.api_key)
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
@@ -102,12 +115,13 @@ def analyze_content(content: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         "topic": "uncategorized"
     }
 
-def synthesize_answer(question: str, relevant_pages: List[Dict[str, Any]]) -> str:
+def synthesize_answer(question: str, relevant_pages: List[Dict[str, Any]], context: Optional[List[Dict[str, str]]] = None) -> str:
     """
-    Synthesize an answer to a question based on relevant wiki pages
+    Synthesize an answer to a question based on relevant wiki pages and conversation history
     Args:
         question: User's question
         relevant_pages: List of relevant pages with content
+        context: Conversation history context, list of {"role": "user/assistant", "content": "..."}
     Returns:
         Synthesized answer with citations
     """
@@ -128,28 +142,42 @@ def synthesize_answer(question: str, relevant_pages: List[Dict[str, Any]]) -> st
 
     client = get_llm_client()
 
-    # 构建上下文，限制每个页面的内容长度避免超过token限制
-    context = ""
+    # 构建知识库内容，限制每个页面的内容长度避免超过token限制
+    kb_content = ""
     for i, page in enumerate(relevant_pages):
         frontmatter, body = extract_frontmatter(page["content"])
         # 只保留正文部分，去掉元数据
-        context += f"\n=== [{i+1}] {page['title']} (路径: {page['path']}) ===\n"
-        context += body[:3000] + "\n"  # 每个页面最多取3000字符
+        kb_content += f"\n=== [{i+1}] {page['title']} (路径: {page['path']}) ===\n"
+        kb_content += body[:3000] + "\n"  # 每个页面最多取3000字符
+
+    # 处理对话历史上下文
+    history_str = ""
+    if context:
+        history_str = "### 历史对话：\n"
+        for msg in context:
+            role = "用户" if msg["role"] == "user" else "助理"
+            history_str += f"{role}: {msg['content']}\n"
+        # 限制历史长度，最多2000字符
+        if len(history_str) > 2000:
+            history_str = history_str[-2000:]
+        history_str += "\n### 当前问题：\n"
 
     prompt = f"""
-    请根据以下提供的知识库内容，准确回答用户的问题，严格遵守以下规则：
+    请根据以下提供的知识库内容和历史对话，准确回答用户的当前问题，严格遵守以下规则：
 
-    1. 只能使用提供的上下文内容回答问题，不能编造任何不在上下文里的信息
-    2. 所有事实性陈述都必须标注来源，引用格式为：[页面标题](相对路径)
-    3. 如果多个来源提到相同内容，可以标注多个来源
-    4. 如果上下文里没有足够信息回答问题，直接说："我没有找到相关的信息来回答这个问题。"
-    5. 回答结构清晰，逻辑分明，语言简洁明了
-    6. 最后可以补充一个"参考资料"部分，列出所有引用的页面
+    1. 只能使用提供的知识库内容回答问题，不能编造任何不在上下文里的信息
+    2. 可以结合历史对话上下文理解用户的问题，但回答的事实性内容必须来自知识库
+    3. 所有事实性陈述都必须标注来源，引用格式为：[页面标题](相对路径)
+    4. 如果多个来源提到相同内容，可以标注多个来源
+    5. 如果知识库没有足够信息回答问题，直接说："我没有找到相关的信息来回答这个问题。"
+    6. 回答结构清晰，逻辑分明，语言简洁明了
+    7. 最后可以补充一个"参考资料"部分，列出所有引用的页面
 
+    {history_str}
     用户问题：{question}
 
     知识库内容：
-    {context}
+    {kb_content}
     """
 
     messages = [

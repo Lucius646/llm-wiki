@@ -1,7 +1,8 @@
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import Field, field_validator
+import json
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
@@ -70,6 +71,90 @@ class Settings(BaseSettings):
     def get_wiki_topic_dir(self, category: str, topic: str) -> Path:
         """Get path to a topic directory in wiki/"""
         return self.wiki_dir / category / topic.lower().replace(" ", "-")
+
+class UserConfig:
+    """Global user-level configuration stored in ~/.llmwiki/config.json"""
+    _config_dir: Path = Path.home() / ".llmwiki"
+    _config_path: Path = _config_dir / "config.json"
+
+    @classmethod
+    def _load(cls) -> Dict[str, Any]:
+        """Load config from file, create default if not exists"""
+        if not cls._config_path.exists():
+            cls._config_dir.mkdir(exist_ok=True, parents=True)
+            default_config = {
+                "openai": {
+                    "access_token": None,
+                    "refresh_token": None,
+                    "expires_at": None
+                },
+                "anthropic": {
+                    "api_key": None
+                }
+            }
+            cls._save(default_config)
+            return default_config
+
+        with open(cls._config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    @classmethod
+    def _save(cls, config: Dict[str, Any]) -> None:
+        """Save config to file"""
+        with open(cls._config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+    @classmethod
+    def get_openai_token(cls) -> Optional[str]:
+        """Get saved OpenAI access token"""
+        config = cls._load()
+        return config.get("openai", {}).get("access_token")
+
+    @classmethod
+    def save_openai_token(cls, access_token: str, refresh_token: str = None, expires_at: int = None) -> None:
+        """Save OpenAI access token and optional refresh token/expiration time"""
+        config = cls._load()
+        if "openai" not in config:
+            config["openai"] = {}
+        config["openai"]["access_token"] = access_token
+        if refresh_token is not None:
+            config["openai"]["refresh_token"] = refresh_token
+        if expires_at is not None:
+            config["openai"]["expires_at"] = expires_at
+        cls._save(config)
+
+    @classmethod
+    def get_anthropic_key(cls) -> Optional[str]:
+        """Get saved Anthropic API key"""
+        config = cls._load()
+        return config.get("anthropic", {}).get("api_key")
+
+    @classmethod
+    def save_anthropic_key(cls, api_key: str) -> None:
+        """Save Anthropic API key"""
+        config = cls._load()
+        if "anthropic" not in config:
+            config["anthropic"] = {}
+        config["anthropic"]["api_key"] = api_key
+        cls._save(config)
+
+    @classmethod
+    def get_active_llm_credentials(cls) -> Optional[Dict[str, str]]:
+        """Get credentials for the currently configured LLM provider"""
+        if settings.llm_provider == "openai":
+            token = cls.get_openai_token()
+            if token:
+                return {"access_token": token}
+            # Fallback to API key if no OAuth token
+            if settings.api_key:
+                return {"api_key": settings.api_key}
+        elif settings.llm_provider == "anthropic":
+            key = cls.get_anthropic_key()
+            if key:
+                return {"api_key": key}
+            if settings.api_key:
+                return {"api_key": settings.api_key}
+        return None
 
 # Global settings instance
 settings = Settings()
