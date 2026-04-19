@@ -237,13 +237,28 @@ def chat(persist, no_history):
     console.print(Panel.fit(
         f"[bold blue]🧠 LLM Wiki v{__version__} 交互式会话[/bold blue]\n"
         "输入问题直接查询知识库，支持Markdown输出\n"
-        "内置命令：/help 查看帮助 | /ingest 摄入文件 | /status 查看状态 | /save 保存会话 | /exit 退出\n"
+        "内置命令：/help 查看帮助 | /provider 查看模型接入指南 | /ingest 摄入文件 | /status 查看状态 | /exit 退出\n"
         "快捷键：Ctrl+C/Ctrl+D 退出 | 上下键翻历史输入",
         border_style="blue"
     ))
     console.print()
 
-    # 上下文记忆（暂存，后面完善）
+    # 检查LLM配置状态，提示引导
+    from llmwiki.config import UserConfig
+    has_creds = UserConfig.get_active_llm_credentials() is not None
+    if not has_creds:
+        console.print(Panel(
+            "⚠️  [bold yellow]未检测到有效的LLM凭证[/bold yellow]\n\n"
+            "你可以选择以下方式配置：\n"
+            "1. 🔑 运行 [bold]llmwiki login[/bold] 登录OpenAI官方账号（无需API密钥）\n"
+            "2. 🔌 输入 [bold]/provider[/bold] 查看自定义LLM接入指南（支持本地开源模型/第三方接口）\n"
+            "3. ⚙️  在.env文件中配置API_KEY\n\n"
+            "目前处于模拟模式，仅返回知识库原始内容，不会调用LLM生成回答",
+            border_style="yellow"
+        ))
+        console.print()
+
+    # 上下文记忆
     context = []
 
     # REPL主循环
@@ -270,11 +285,35 @@ def chat(persist, no_history):
                     "- 直接输入问题查询知识库\n"
                     "- /ingest <文件路径/URL> [--topic 分类]：摄入新资料\n"
                     "- /status：查看知识库状态\n"
+                    "- /provider：查看自定义LLM模型接入指南\n"
                     "- /lint [--auto-fix]：运行健康检查\n"
                     "- /save [文件名]：保存当前会话到synthesis页面\n"
                     "- /clear：清空当前上下文\n"
                     "- /exit /q：退出会话",
                     border_style="green"
+                ))
+                continue
+            elif cmd == "provider" or cmd == "providers":
+                console.print(Panel(
+                    "🔌 [bold]自定义LLM模型接入指南[/bold]\n\n"
+                    "[bold yellow]方法1: 使用内置支持的第三方Provider[/bold yellow]\n"
+                    "• Ollama (本地开源大模型): LLM_PROVIDER=ollama\n"
+                    "• OpenRouter (多模型网关): LLM_PROVIDER=openrouter\n\n"
+                    "[bold yellow]方法2: 快速添加自定义Provider[/bold yellow]\n"
+                    "1. 在项目中创建自定义Provider类，继承BaseLLMProvider\n"
+                    "2. 实现chat_completion方法调用你的LLM接口\n"
+                    "3. 调用register_provider('your_provider', YourProvider)注册\n\n"
+                    "[bold yellow]配置示例 (.env 文件):[/bold yellow]\n"
+                    "```env\n"
+                    "LLM_PROVIDER=ollama\n"
+                    "MODEL_NAME=llama3:8b\n"
+                    "CUSTOM_PROVIDER_CONFIGS='{\"ollama\": {\"base_url\": \"http://localhost:11434/api\"}}'\n"
+                    "```\n\n"
+                    "[bold yellow]完整示例代码:[/bold yellow]\n"
+                    "查看 examples/custom_provider_example.py 包含Ollama和OpenRouter的完整实现\n\n"
+                    "[bold blue]💡 提示:[/bold blue] 当前配置的Provider是 [bold]{settings.llm_provider}[/bold]，使用模型 [bold]{settings.model_name}[/bold]",
+                    border_style="magenta",
+                    width=90
                 ))
                 continue
             elif cmd == "clear":
