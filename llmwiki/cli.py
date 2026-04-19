@@ -44,7 +44,7 @@ def _(event):
     "Ctrl+D退出"
     event.app.exit()
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
 @click.option("--wiki-root", type=click.Path(exists=True, file_okay=False, path_type=Path),
               help="Root directory of the wiki (default: current directory)")
@@ -61,6 +61,11 @@ def cli(ctx: click.Context, wiki_root: Path | None):
         global settings
         settings = config.settings
     ctx.ensure_object(dict)
+
+    # Default to chat mode when no subcommand is given
+    if ctx.invoked_subcommand is None:
+        # Call chat command with default parameters
+        ctx.invoke(chat, persist=None, no_history=False)
 
 @cli.command(name="login")
 @click.option("--provider", type=click.Choice(["openai", "anthropic"]), default="openai",
